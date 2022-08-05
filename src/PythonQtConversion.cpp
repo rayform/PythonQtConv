@@ -167,7 +167,7 @@ QString PythonQtConv::PyObjGetRepresentation(PyObject *val)
 #ifdef PY3K
     r = PyObjGetString(str);
 #else
-    r = QString(PyString_AS_STRING(str));
+    r = QString(PyString_AsString(str));
 #endif
     Py_DECREF(str);
   }
@@ -183,19 +183,26 @@ QString PythonQtConv::PyObjGetString(PyObject *val, bool strict, bool &ok)
   // encoding in Python 2, we assume the default for str is latin-1
   if (val->ob_type == &PyBytes_Type)
   {
-    r = QString::fromLatin1(PyBytes_AS_STRING(val));
+    r = QString::fromLatin1(PyBytes_AsString(val));
   }
   else
 #endif
       if (PyUnicode_Check(val))
   {
-#ifdef PY3K
-    r = QString::fromUtf8(PyUnicode_AsUTF8(val));
+#if defined(PY3K) && Py_LIMITED_API >= 0x03100000
+    r = QString::fromUtf8(PyUnicode_AsUTF8AndSize(val, NULL));
+#elif defined(PY3K)
+    PyObject *ptmp = PyUnicode_AsEncodedString(val, "utf-8", "strict");
+    if (ptmp)
+    {
+      r = QString::fromUtf8(PyBytes_AsString(ptmp));
+      Py_DECREF(ptmp);
+    }
 #else
     PyObject *ptmp = PyUnicode_AsUTF8String(val);
     if (ptmp)
     {
-      r = QString::fromUtf8(PyString_AS_STRING(ptmp));
+      r = QString::fromUtf8(PyString_AsString(ptmp));
       Py_DECREF(ptmp);
     }
 #endif
@@ -205,10 +212,17 @@ QString PythonQtConv::PyObjGetString(PyObject *val, bool strict, bool &ok)
     PyObject *str = PyObject_Str(val);
     if (str)
     {
-#ifdef PY3K
-      r = QString::fromUtf8(PyUnicode_AsUTF8(str));
+#if defined(PY3K) && Py_LIMITED_API >= 0x03100000
+      r = QString::fromUtf8(PyUnicode_AsUTF8AndSize(str, NULL));
+#elif defined(PY3K)
+      PyObject *ptmp = PyUnicode_AsEncodedString(val, "utf-8", "strict");
+      if (ptmp)
+      {
+        r = QString::fromUtf8(PyBytes_AsString(ptmp));
+        Py_DECREF(ptmp);
+      }
 #else
-      r = QString(PyString_AS_STRING(str));
+      r = QString(PyString_AsString(str));
 #endif
       Py_DECREF(str);
     }
@@ -231,7 +245,7 @@ QByteArray PythonQtConv::PyObjGetBytes(PyObject *val, bool /*strict*/, bool &ok)
   ok = true;
   if (PyBytes_Check(val))
   {
-    r = QByteArray(PyBytes_AS_STRING(val), PyBytes_GET_SIZE(val));
+    r = QByteArray(PyBytes_AsString(val), PyBytes_Size(val));
   }
   else
   {
@@ -270,18 +284,18 @@ int PythonQtConv::PyObjGetInt(PyObject *val, bool strict, bool &ok)
   ok = true;
   if (val->ob_type == &PyInt_Type)
   {
-    d = PyInt_AS_LONG(val);
+    d = PyInt_AsLong(val);
   }
   else if (!strict)
   {
     if (PyObject_TypeCheck(val, &PyInt_Type))
     {
       // support for derived int classes, e.g. for our enums
-      d = PyInt_AS_LONG(val);
+      d = PyInt_AsLong(val);
     }
     else if (val->ob_type == &PyFloat_Type)
     {
-      d = floor(PyFloat_AS_DOUBLE(val));
+      d = floor(PyFloat_AsDouble(val));
     }
     else if (val->ob_type == &PyLong_Type)
     {
@@ -322,7 +336,7 @@ qint64 PythonQtConv::PyObjGetLongLong(PyObject *val, bool strict, bool &ok)
 #ifndef PY3K
   if (val->ob_type == &PyInt_Type)
   {
-    d = PyInt_AS_LONG(val);
+    d = PyInt_AsLong(val);
   }
   else
 #endif
@@ -335,11 +349,11 @@ qint64 PythonQtConv::PyObjGetLongLong(PyObject *val, bool strict, bool &ok)
     if (PyObject_TypeCheck(val, &PyInt_Type))
     {
       // support for derived int classes, e.g. for our enums
-      d = PyInt_AS_LONG(val);
+      d = PyInt_AsLong(val);
     }
     else if (val->ob_type == &PyFloat_Type)
     {
-      d = floor(PyFloat_AS_DOUBLE(val));
+      d = floor(PyFloat_AsDouble(val));
     }
     else if (val == Py_False)
     {
@@ -375,7 +389,7 @@ quint64 PythonQtConv::PyObjGetULongLong(PyObject *val, bool strict, bool &ok)
 #ifndef PY3K
   if (Py_TYPE(val) == &PyInt_Type)
   {
-    d = PyInt_AS_LONG(val);
+    d = PyInt_AsLong(val);
   }
   else
 #endif
@@ -388,11 +402,11 @@ quint64 PythonQtConv::PyObjGetULongLong(PyObject *val, bool strict, bool &ok)
     if (PyObject_TypeCheck(val, &PyInt_Type))
     {
       // support for derived int classes, e.g. for our enums
-      d = PyInt_AS_LONG(val);
+      d = PyInt_AsLong(val);
     }
     else if (val->ob_type == &PyFloat_Type)
     {
-      d = floor(PyFloat_AS_DOUBLE(val));
+      d = floor(PyFloat_AsDouble(val));
     }
     else if (val == Py_False)
     {
@@ -427,14 +441,14 @@ double PythonQtConv::PyObjGetDouble(PyObject *val, bool strict, bool &ok)
   ok = true;
   if (val->ob_type == &PyFloat_Type)
   {
-    d = PyFloat_AS_DOUBLE(val);
+    d = PyFloat_AsDouble(val);
   }
   else if (!strict)
   {
 #ifndef PY3K
     if (PyObject_TypeCheck(val, &PyInt_Type))
     {
-      d = PyInt_AS_LONG(val);
+      d = PyInt_AsLong(val);
     }
     else
 #endif
@@ -756,7 +770,7 @@ PyObject *PythonQtConv::QStringListToPyObject(const QStringList &list)
   QString str;
   Q_FOREACH (str, list)
   {
-    PyTuple_SET_ITEM(result, i, PythonQtConv::QStringToPyObject(str));
+    PyTuple_SetItem(result, i, PythonQtConv::QStringToPyObject(str));
     i++;
   }
   // why is the error state bad after this?
@@ -770,7 +784,7 @@ PyObject *PythonQtConv::QStringListToPyList(const QStringList &list)
   int i = 0;
   for (QStringList::ConstIterator it = list.begin(); it != list.end(); ++it)
   {
-    PyList_SET_ITEM(result, i, PythonQtConv::QStringToPyObject(*it));
+    PyList_SetItem(result, i, PythonQtConv::QStringToPyObject(*it));
     i++;
   }
   return result;
@@ -821,7 +835,7 @@ PyObject *PythonQtConv::QVariantListToPyObject(const QVariantList &l)
   QVariant v;
   Q_FOREACH (v, l)
   {
-    PyTuple_SET_ITEM(result, i, PythonQtConv::QVariantToPyObject(v));
+    PyTuple_SetItem(result, i, PythonQtConv::QVariantToPyObject(v));
     i++;
   }
   // why is the error state bad after this?
